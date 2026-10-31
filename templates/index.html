@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SLA, SLO, SLI Monitoring Engine | SRE Observability Cockpit</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-text">
+        <h1>SLA / SLO / SLI Monitoring Engine</h1>
+        <p>Production SRE Observability & Chaos Engineering Platform</p>
+      </div>
+    </div>
+
+    <div class="nav-controls">
+      <!-- Live Status Pill -->
+      <div class="status-indicator">
+        <span class="pulse-dot" id="navStatusDot"></span>
+        <span id="navStatusText">ENGINE RUNNING</span>
+      </div>
+
+      <!-- Refresh Interval -->
+      <select id="selectRefreshInterval" class="form-control" title="Auto-refresh frequency">
+        <option value="2000" selected>⚡ Live (2s)</option>
+        <option value="5000">⏱️ Normal (5s)</option>
+        <option value="10000">🐢 Relaxed (10s)</option>
+        <option value="0">⏸️ Paused</option>
+      </select>
+
+      <!-- Export CSV Report -->
+      <a href="/api/export/report" class="btn" title="Download SLA Compliance Audit Report (CSV)">
+        📥 Export SLA Audit
+      </a>
+
+      <!-- Add Service Button -->
+      <button class="btn btn-primary" id="btnOpenAddServiceModal">
+        ➕ Add Service
+      </button>
+
+      <!-- Theme Switcher -->
+      <button class="btn" id="btnThemeToggle" title="Toggle Dark/Light Mode">
+        ☀️ Light
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- KPI Summary Overview Cards -->
+    <section class="kpi-grid">
+      <!-- Fleet Availability -->
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Fleet Availability SLI</span>
+          <span class="kpi-badge badge-status healthy">Target ≥ 99.5%</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value" id="kpiFleetAvailability">--%</span>
+        </div>
+        <div class="kpi-subtext">Weighted average across all monitored microservices</div>
+      </div>
+
+      <!-- Error Budget Remaining -->
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Fleet Error Budget</span>
+          <span class="kpi-badge" style="background: rgba(139, 92, 246, 0.2); color: var(--accent-purple);">Headroom</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value" id="kpiFleetErrorBudget">--%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div id="kpiFleetBudgetBar" class="progress-bar-fill progress-healthy" style="width: 100%;"></div>
+        </div>
+        <div class="kpi-subtext" style="margin-top: 0.35rem;">Allowable unreliability remaining before SLO breach</div>
+      </div>
+
+      <!-- Active Incidents & Alerts -->
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Active Incidents / Alerts</span>
+          <span class="kpi-badge" id="kpiActiveIncidentsBadge">0 Critical</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value" id="kpiActiveIncidents">0</span>
+        </div>
+        <div class="kpi-subtext">Threshold violations requiring engineer triage</div>
+      </div>
+
+      <!-- Fleet Total Traffic -->
+      <div class="kpi-card">
+        <div class="kpi-header">
+          <span class="kpi-title">Total Fleet Throughput</span>
+          <span class="kpi-badge" style="background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan);">Live QPS</span>
+        </div>
+        <div class="kpi-value-row">
+          <span class="kpi-value" id="kpiFleetQps">0 req/s</span>
+        </div>
+        <div class="kpi-subtext">Real-time simulated user and API traffic volume</div>
+      </div>
+    </section>
+
+    <!-- Chaos & Traffic Simulator Control Panel -->
+    <section class="simulator-panel">
+      <div class="panel-header">
+        <div class="panel-title-group">
+          <span style="font-size: 1.25rem;">🧪</span>
+          <div>
+            <div class="panel-title">Chaos Engineering & Traffic Generator</div>
+            <div class="panel-subtitle">Inject real-world latency, cascading 500 errors, or outages to test SLA breach alerting</div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <label style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600;">Target:</label>
+          <select id="simTargetService" class="form-control" style="min-width: 200px;">
+            <option value="all">⚡ All Fleet Services</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Preset Scenarios -->
+      <div class="scenario-buttons-grid">
+        <button class="scenario-btn active" data-scenario="NORMAL">
+          <span class="scenario-name">🟢 Normal Traffic</span>
+          <span class="scenario-desc">Healthy baseline operation (99.9% uptime, ~45ms)</span>
+        </button>
+
+        <button class="scenario-btn" data-scenario="TRAFFIC_SPIKE">
+          <span class="scenario-name">📈 Traffic Surge</span>
+          <span class="scenario-desc">6x traffic volume jump (Black Friday flash sale)</span>
+        </button>
+
+        <button class="scenario-btn" data-scenario="LATENCY_SPIKE">
+          <span class="scenario-name">🐌 Database Lag</span>
+          <span class="scenario-desc">Injects +750ms latency spike (DB lock / cache miss)</span>
+        </button>
+
+        <button class="scenario-btn" data-scenario="ERROR_FLOOD">
+          <span class="scenario-name">💥 500 Error Flood</span>
+          <span class="scenario-desc">25% HTTP 500 server crashes (degrades availability)</span>
+        </button>
+
+        <button class="scenario-btn" data-scenario="PARTIAL_OUTAGE">
+          <span class="scenario-name">⚠️ Partial Outage</span>
+          <span class="scenario-desc">50% failure rate (triggers Warning & Critical SLO)</span>
+        </button>
+
+        <button class="scenario-btn" data-scenario="TOTAL_OUTAGE">
+          <span class="scenario-name">🚨 Total Service Outage</span>
+          <span class="scenario-desc">100% downtime outage (immediate SLA breach)</span>
+        </button>
+
+        <button class="scenario-btn" data-scenario="FLAPPING">
+          <span class="scenario-name">⚡ Intermittent Flapping</span>
+          <span class="scenario-desc">Oscillates between healthy and degraded states</span>
+        </button>
+      </div>
+
+      <!-- Fine-Grained Injection Inputs & Action Buttons -->
+      <div class="simulator-controls-bar">
+        <div class="simulator-inputs">
+          <div class="simulator-input-item">
+            <span>Extra Latency:</span>
+            <input type="number" id="inputAddedLatency" class="form-control" value="0" min="0" max="5000" step="50" style="width: 80px;">
+            <span>ms</span>
+          </div>
+
+          <div class="simulator-input-item">
+            <span>Error Rate:</span>
+            <input type="number" id="inputInjectedErrors" class="form-control" value="0" min="0" max="100" step="1" style="width: 70px;">
+            <span>%</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button class="btn btn-primary" id="btnApplyChaos">
+            🚀 Inject Failure Condition
+          </button>
+          <button class="btn" id="btnResetChaos">
+            🔄 Reset All to Healthy
+          </button>
+          <button class="btn" id="btnToggleSimulator">
+            ⏯️ Pause/Resume Engine
+          </button>
+          <button class="btn" id="btnForceTick">
+            ⚡ Step Tick
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Monitored Fleet Services Section -->
+    <section>
+      <div class="section-header">
+        <div class="section-title">
+          <span>🖥️</span> Monitored Microservices Fleet
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted);">
+          Evaluated against 4 Core SLIs: Availability, Success Rate, Response Time, and Error Rate
+        </div>
+      </div>
+
+      <div class="services-grid" id="servicesGrid">
+        <!-- Rendered dynamically by JavaScript -->
+      </div>
+    </section>
+
+    <!-- Detailed Analytics & Interactive Charts Section -->
+    <section class="charts-wrapper" id="chartsSection">
+      <div class="section-header">
+        <div class="section-title">
+          <span>📊</span> Real-Time Observability Analytics & SLI Trends
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <span class="chart-target-badge" id="chartHeaderTargetBadge">SLO Target: 99.9%</span>
+          <select id="chartServiceSelect" class="form-control" style="min-width: 220px;">
+            <!-- Populated dynamically -->
+          </select>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <!-- Chart 1: Availability & Success Rate -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Availability & Request Success Rate (%)</span>
+            <span class="badge-status healthy" style="font-size: 0.68rem;">SLO Target: ≥99.5%</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="availabilityChartCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Chart 2: Latency Percentiles -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Response Time Percentiles (Avg, P95, P99 ms)</span>
+            <span class="badge-status warning" style="font-size: 0.68rem;">SLO Target: ≤250ms</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="latencyChartCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Chart 3: Error Rate -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">HTTP Error Rate (%)</span>
+            <span class="badge-status critical" style="font-size: 0.68rem;">SLO Target: ≤0.5%</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="errorRateChartCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Chart 4: Error Budget Remaining -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">Remaining Error Budget Headroom (%)</span>
+            <span class="badge-status healthy" style="font-size: 0.68rem;">Burn Rate ≤ 1.0x</span>
+          </div>
+          <div class="chart-container">
+            <canvas id="errorBudgetChartCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SLA / SLO Compliance Matrix Table -->
+    <section>
+      <div class="section-header">
+        <div class="section-title">
+          <span>📋</span> SLA / SLO Compliance Matrix
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-muted);">
+          Internal SLO Targets vs Contractual SLA Commitments & Error Budget Burn
+        </div>
+      </div>
+
+      <div class="table-card">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th>SLI Indicator</th>
+              <th>Current Value</th>
+              <th>SLO Target</th>
+              <th>SLA Commitment</th>
+              <th>Error Budget</th>
+              <th>Burn Rate</th>
+              <th>Health Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="sloMatrixTableBody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Live Incident & Alert Stream -->
+    <section class="alerts-card">
+      <div class="alerts-filter-bar">
+        <div class="section-title">
+          <span>🚨</span> Live Incident & Alert Feed
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <div class="filter-pills">
+            <button class="filter-pill active" data-status="ACTIVE">Active</button>
+            <button class="filter-pill" data-status="ALL">All Alerts</button>
+            <button class="filter-pill" data-status="RESOLVED">Resolved</button>
+          </div>
+
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--text-muted); cursor: pointer;">
+            <input type="checkbox" id="checkAudioAlerts"> 🔊 Audio Chime
+          </label>
+
+          <button class="btn btn-sm" id="btnClearResolvedAlerts">
+            🧹 Clear Resolved
+          </button>
+        </div>
+      </div>
+
+      <div class="alerts-list" id="alertsList">
+        <!-- Alert items rendered dynamically -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal: Edit SLO Thresholds -->
+  <div class="modal-overlay" id="modalEditSlo">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="editSloModalTitle">Edit SLO Target</h3>
+        <button class="btn btn-sm modal-close-btn">&times;</button>
+      </div>
+      <form id="formEditSlo">
+        <input type="hidden" id="editSloServiceId">
+        <input type="hidden" id="editSloSliId">
+
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="inputSloTarget">Internal SLO Target (Healthy Threshold)</label>
+            <input type="number" step="0.01" class="form-control" id="inputSloTarget" required>
+            <small style="color: var(--text-dim); font-size: 0.72rem;">Goal your engineering team commits to achieving internally.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="inputWarningTarget">Warning Threshold (At Risk)</label>
+            <input type="number" step="0.01" class="form-control" id="inputWarningTarget" required>
+            <small style="color: var(--text-dim); font-size: 0.72rem;">Trigger warning alert to on-call engineer before SLA is breached.</small>
+          </div>
+
+          <div class="form-group">
+            <label for="inputSlaTarget">Contractual SLA Commitment (Critical Breach)</label>
+            <input type="number" step="0.01" class="form-control" id="inputSlaTarget" required>
+            <small style="color: var(--text-dim); font-size: 0.72rem;">External agreement threshold; breach incurs financial penalties.</small>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn modal-close-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Add New Service -->
+  <div class="modal-overlay" id="modalAddService">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">Register New Monitored Microservice</h3>
+        <button class="btn btn-sm modal-close-btn">&times;</button>
+      </div>
+      <form id="formAddService">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="newServiceId">Service ID (Unique Identifier)</label>
+            <input type="text" class="form-control" id="newServiceId" placeholder="e.g. svc-billing" required pattern="[a-zA-Z0-9_-]+">
+          </div>
+
+          <div class="form-group">
+            <label for="newServiceName">Service Name</label>
+            <input type="text" class="form-control" id="newServiceName" placeholder="e.g. Billing & Invoicing Service" required>
+          </div>
+
+          <div class="form-group">
+            <label for="newServiceTier">Service Tier / Criticality</label>
+            <select class="form-control" id="newServiceTier">
+              <option value="Tier 1 - Mission Critical">Tier 1 - Mission Critical (99.9% SLO)</option>
+              <option value="Tier 2 - Business Essential" selected>Tier 2 - Business Essential (99.5% SLO)</option>
+              <option value="Tier 3 - Standard Support">Tier 3 - Standard Support (99.0% SLO)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="newServiceDesc">Description</label>
+            <input type="text" class="form-control" id="newServiceDesc" placeholder="e.g. Handles monthly invoice generation and PDF exports">
+          </div>
+
+          <div class="form-group">
+            <label for="newServiceQps">Base Traffic Volume (QPS)</label>
+            <input type="number" class="form-control" id="newServiceQps" value="120" min="10" max="2000">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn modal-close-btn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Register Service</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>⚡ <strong>SLA / SLO / SLI Monitoring Engine</strong> &bull; Site Reliability Engineering Observability &bull; SQLite Persistence &bull; Built with Python Flask & Modern Web Technologies</p>
+  </footer>
+
+  <!-- Application Scripts -->
+  <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/charts.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/simulator.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

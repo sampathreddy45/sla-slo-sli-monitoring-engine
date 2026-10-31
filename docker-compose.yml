@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  sla-monitoring-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sla-monitoring-engine:latest
+    container_name: sla-monitoring-engine
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_PATH=/app/data/sla_monitor.db
+      - SIMULATOR_ENABLED=true
+      - SIMULATOR_INTERVAL_SEC=2.0
+      - SECRET_KEY=sre-production-secret-key-2026
+    volumes:
+      - sla-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  sla-data:
+    driver: local
